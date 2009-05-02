@@ -1,8 +1,9 @@
 2009-05-02
 
-This repo is supposed to hold kind of a fork of the Wordpress Plugin Shared Items Post [http://www.googletutor.com/shared-items-post/]
+This repo is supposed to hold a fork (sort of) to the Wordpress Plugin Shared Items Post [http://www.googletutor.com/shared-items-post/]
 
 The PI is rebuilt from the ground up since development seems to have slowed to a halt at Googletutor and the original author seems to have lost interest. It's to bad on a good idea, so let's build something great.
 
 Initially the featureset should remain the same, but the PI should address stability issues and conflicts, and care for better handling of the dependencie of Simple Pie.
 
+To start of the files from the previous PI is attached.
