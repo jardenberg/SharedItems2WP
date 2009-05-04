@@ -9,7 +9,7 @@
 <table class="form-table"><tbody>
     <tr><th scope="row">Shared items url:</th>
         <td>
-            <input type="text" name="share_url" id="adv_paypal_url" value="<?php echo $options["share_url"]; ?>" style="width: 720px" />
+            <input type="text" name="share_url" id="adv_paypal_url" value="<?php echo $options["share_url"]; ?>" style="width: 720px" /><input type="hidden" name="share_id" id="adv_share_id" value="<?php echo $options["share_id"]; ?>" /> ID: <span id="filled_share_id"><?php echo $options["share_id"]; ?></span>
         </td>
     </tr>
     <tr><th scope="row">Refresh:</th>

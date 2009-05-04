@@ -24,7 +24,10 @@ if (!class_exists('SharedItemsPost')) {
     class SharedItemsPost
     {
         var $log_file = "c:/log.txt";
-        
+		
+		var $options_key = 'shared-items-post-options';
+		var $google_feed_url = 'http://www.google.com/reader/public/atom/user/%s/state/com.google/broadcast';
+		
         var $plugin_url;
         var $plugin_path;
         var $status = "";
@@ -34,6 +37,7 @@ if (!class_exists('SharedItemsPost')) {
         var $default_options = array(
             'revision' => 11,
             'share_url' => '',
+			'share_id'	=> '',
             'feed_url' => '',
             'refresh_period' => 'weekly',
             'refresh_time' => '06:00 AM',
@@ -67,107 +71,124 @@ if (!class_exists('SharedItemsPost')) {
         }
 
         function plugin_path_url() {
-            $this->plugin_url = WP_PLUGIN_URL.'/shared-items-post/';
-            $this->plugin_path = dirname(__FILE__).'/';
-            define('RSSSHAREITEMS_URL', $this->plugin_url);
-            define('RSSSHAREITEMS_PATH', $this->plugin_path);
+			$this->plugin_path = dirname(__FILE__).'/';
+			$this->plugin_url = WP_PLUGIN_URL.'/' . basename(dirname(__FILE__)) . '/';
         }
 
-        function install_plugin() {
-            $this->o = get_option('shared-items-post-options');
-            
-            if (!is_array($this->o)) {
-                update_option('shared-items-post-options', $this->default_options);
-                $this->o = get_option('shared-items-post-options');
-            }
-            else {
-                foreach ($this->default_options as $key => $value)
-                    if (!isset($this->o[$key])) $this->o[$key] = $value;
-                $this->o["revision"] = $this->default_options["revision"];
-                update_option('shared-items-post-options', $this->o);
-            }
-        }
+		function install_plugin() {
+			$this->o = get_option($this->options_key);
+						
+			if (!is_array($this->o) || empty($this->o) ) {
+				update_option($this->options_key, $this->default_options);
+				$this->o = get_option($this->options_key);
+			}
+			else {
+				$this->o = $this->o + $this->default_options;
+				$this->o["revision"] = $this->default_options["revision"];
+				update_option( $this->options_key, $this->o);
+			}
+		}
 
-        function actions_filters() {
-            add_action('init', array(&$this, 'init'));
-            add_action('admin_menu', array(&$this, 'admin_menu'));
-            add_action('admin_head', array(&$this, 'admin_head'));
-        }
+		function actions_filters() {
+			add_action('init', array(&$this, 'init'));
+			add_action('admin_menu', array(&$this, 'admin_menu'));
+			add_action('admin_head', array(&$this, 'admin_head'));
+		}
 
-        function get_feed_url($share_url) {
-            $file = $this->get_file_contents($share_url);
-            preg_match('/xml".href="(.+?)"/', $file, $matches);
-            return $matches[1];
-        }
-        
-        function get_feed_contents($feed_url) {
-            $file = $this->get_file_contents($feed_url);
-            $rss = new MagpieRSS($file);
-            return $rss;
-        }
-        
-        function get_file_contents($url) {
-            $client = new Snoopy();
-            $client->agent = MAGPIE_USER_AGENT;
-            $client->read_timeout = MAGPIE_FETCH_TIME_OUT;
-            $client->use_gzip = MAGPIE_USE_GZIP;
-            $client->fetch($url);
-            $file = $client->results;
-            return $file;
-        }
-        
-        function init() {
-            if ($_POST['action'] == 'runow') {
-	            	check_admin_referer('shared-2');
-	            	
-                $this->generate_post();
-            }
-            else {
-                if ($_POST['action'] == 'reset') {
-                		check_admin_referer('shared-3');
-                		
-                    $this->o = $this->default_options;
-                    update_option("shared-items-post-options", $this->default_options);
-                }
-                
-                if ($_POST['action'] == 'save') {
-                		check_admin_referer('shared-1');
-                		
-                    $this->o["post_title"] = $_POST['post_title'];
-                    $this->o["post_tags"] = $_POST['post_tags'];
-                    $this->o["post_header_template"] = stripslashes(htmlentities($_POST['post_header_template'], ENT_QUOTES, 'UTF-8'));
-                    $this->o["post_footer_template"] = stripslashes(htmlentities($_POST['post_footer_template'], ENT_QUOTES, 'UTF-8'));
-                    $this->o["post_item_template"] = stripslashes(htmlentities($_POST['post_item_template'], ENT_QUOTES, 'UTF-8'));
-                    $this->o["post_note_template"] = stripslashes(htmlentities($_POST['post_note_template'], ENT_QUOTES, 'UTF-8'));
-                    $this->o["post_author"] = $_POST['post_author'];
-                    $this->o["post_category"] = $_POST['post_category'];
-                    $this->o["post_comments"] = isset($_POST['post_comments']) ? 1 : 0;
-                    $this->o["refresh_period"] = $_POST['refresh_period'];
-                    $this->o["refresh_time"] = $_POST['refresh_time'];
-                   
+		function get_feed_url($share_url) {
+// 			$file = $this->get_file_contents($share_url);
+// 			preg_match('/xml".href="(.+?)"/', $file, $matches);
+// 			return $matches[1];
+			$share_id = ( isset ( $this->o['share_id'] ) && !empty ( $this->o['share_id']{19} ) ) ? $this->o["share_id"] : $this->get_share_id ( $share_url );
+			return sprintf ( $this->google_feed_url, $share_id );
+		}
 
-                    
-                    update_option("shared-items-post-options", $this->o);
+		function get_feed_contents($feed_url) {
+			$file = $this->get_file_contents($feed_url);
+			$rss = new MagpieRSS($file);
+			return $rss;
+		}
 
-                    $share_url = str_replace("https://", "http://", $_POST['share_url']);
-                    
-                    if ($share_url != $options["share_url"]) {
-                        $url = $this->get_feed_url($share_url);
-                        if ($url != "") {
-                            $this->o["share_url"] = $share_url;
-                            $this->o["feed_url"] = $url;
-                            update_option('shared-items-post-options', $this->o);
-                            $this->status = "ok";
-                        }
-                        else
-                            $this->status = "Feed URL not found.";
-                    }
-                }
+		function get_file_contents($url) {
+			$client = new Snoopy();
+			$client->agent = MAGPIE_USER_AGENT;
+			$client->read_timeout = MAGPIE_FETCH_TIME_OUT;
+			$client->use_gzip = MAGPIE_USE_GZIP;
+			$client->fetch($url);
+			$file = $client->results;
+			return $file;
+		}
+		
+		/**
+		* function to return share_id from share_url (instead of parsing it from the page itself...)
+		* @param string $share_url
+		* @return string|false share_id parsed from share_url
+		*/
+		
+		function get_share_id ( $share_url ) {
+		
+			preg_match_all ( '/(http|https):\/\/(www.)?google.com\/reader\/shared\/([0-9]+)\/?/i', $share_url, $matches );
+			
+			if ( isset ( $matches[3][0] ) && !empty ( $matches[3][0]{19} ) )
+				return $matches[3][0];
+			
+			return false;
+		}
 
-                if ($this->check_refresh()) 
-                    $this->generate_post();
-            }
-        }
+		function init() {
+			if ($_POST['action'] == 'runow') {
+			
+				check_admin_referer('shared-2');
+				$this->generate_post();
+				
+			}
+			else {
+				if ($_POST['action'] == 'reset') {
+						check_admin_referer('shared-3');
+						
+					$this->o = $this->default_options;
+					update_option("shared-items-post-options", $this->default_options);
+				}
+				
+				if ($_POST['action'] == 'save') {
+				
+					check_admin_referer('shared-1');
+						
+					$this->o["post_title"] = $_POST['post_title'];
+					$this->o["post_tags"] = $_POST['post_tags'];
+					$this->o["post_header_template"] = stripslashes(htmlentities($_POST['post_header_template'], ENT_QUOTES, 'UTF-8'));
+					$this->o["post_footer_template"] = stripslashes(htmlentities($_POST['post_footer_template'], ENT_QUOTES, 'UTF-8'));
+					$this->o["post_item_template"] = stripslashes(htmlentities($_POST['post_item_template'], ENT_QUOTES, 'UTF-8'));
+					$this->o["post_note_template"] = stripslashes(htmlentities($_POST['post_note_template'], ENT_QUOTES, 'UTF-8'));
+					$this->o["post_author"] = $_POST['post_author'];
+					$this->o["post_category"] = $_POST['post_category'];
+					$this->o["post_comments"] = isset($_POST['post_comments']) ? 1 : 0;
+					$this->o["refresh_period"] = $_POST['refresh_period'];
+					$this->o["refresh_time"] = $_POST['refresh_time'];
+
+					
+					update_option("shared-items-post-options", $this->o);
+
+					$share_url = str_replace("https://", "http://", $_POST['share_url']);
+					
+					if ($share_url != $this->o["share_url"]) {
+						$url = $this->get_feed_url($share_url);
+						if ($url != "") {
+							$this->o["share_url"] = $share_url;
+							$this->o["share_id"] = $this->get_share_id ( $share_url );
+							$this->o["feed_url"] = $url;
+							update_option($this->options_key, $this->o);
+							$this->status = "ok";
+						}
+						else
+							$this->status = "Feed URL not found.";
+					}
+				}
+
+				if ($this->check_refresh()) 
+					$this->generate_post();
+			}
+		}
         
         function generate_post() {
         	 	if ($this->o["feed_url"] == "") return;
@@ -249,7 +270,7 @@ if (!class_exists('SharedItemsPost')) {
                 $this->o["last_refresh"] = mktime();
                 $this->o["last_crawl"] =$newtime;
                 
-                update_option('shared-items-post-options', $this->o);
+                update_option($this->options_key, $this->o);
             }
         }
         
@@ -294,12 +315,15 @@ if (!class_exists('SharedItemsPost')) {
         }
 
         function admin_head() {
-            echo('<link rel="stylesheet" href="'.$this->plugin_url.'shared-items-post.css" type="text/css" media="screen" />');
+            echo('<link rel="stylesheet" href="'.$this->plugin_url.'shared-items-post.css" type="text/css" media="screen" />');			
+			echo '<script src="' . $this->plugin_url . 'shared-items-panel.js" type="text/javascript"></script>';
         }
         
         function options_panel() {
             $options = $this->o;
             $status = $this->status;
+			
+			 
             
             include($this->plugin_path.'shared-items-panel.php');
         }
