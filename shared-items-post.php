@@ -11,7 +11,11 @@ Author URI: http://www.googletutor.com/
 
 require_once(ABSPATH.WPINC.'/class-snoopy.php');
 require_once(ABSPATH.WPINC.'/rss.php');
-require_once(dirname(__FILE__).'/simplepie.php');
+
+if (file_exists(WP_PLUGIN_DIR.'/simplepie-core/simplepie.inc'))
+	require_once(WP_PLUGIN_DIR.'/simplepie-core/simplepie.inc');
+else
+	require_once(dirname(__FILE__).'/simplepie.php');
 
 function gd_compare_items($a, $b) {
     if ($a["entry_time"] == $b["entry_time"]) {
@@ -44,7 +48,7 @@ if (!class_exists('SharedItemsPost')) {
             'post_title' => 'Shared Items - %DATE%',
             'post_header_template' => '&lt;ul&gt;',
             'post_footer_template' => '&lt;/ul&gt;',
-            'post_item_template' => '&lt;li&gt;&lt;a href=&quot;%LINK%&quot;&gt;%TITLE%&lt;/a&gt;&lt;/li&gt;&lt;br&gt;%DATE% %NOTE%',
+            'post_item_template' => '&lt;li&gt;&lt;a href=&quot;%ORIGINURL%&quot; title=&quot;%ORIGIN%&quot;&gt;%ORIGIN%&lt;/a&gt; - &lt;a href=&quot;%LINK%&quot; title=&quot;%TITLE%&quot;&gt;%TITLE%&lt;/a&gt;&lt;br&gt;%DATE% %NOTE%&lt;/li&gt;',
             'post_note_template' => '- %CONTENT%',
             'post_category' => 1,
             'post_tags' => '',
@@ -54,20 +58,29 @@ if (!class_exists('SharedItemsPost')) {
             'last_refresh' => 0,
             'last_refresh_feed' => 0
         );
+		
+		var $item_elements = array (
+			'%TITLE%'		=>	'feed item title',
+			'%LINK%'		=>	'link for the feed item',
+			'%DATE%'		=>	'item publish date',
+			'%NOTE%'		=>	'feed note',
+			'%ORIGIN%'		=>	'origin title',
+			'%ORIGINURL%'	=>	'origin URL'
+		);
+		
+		var $annotation_elements = array (
+			'%CONTENT%'		=>	'note content',
+			'%AUTHOR%'		=>	'note author'
+		);
+		
+		var $title_elements = array (
+			'%DATE%'		=>	'post publish date'
+		);
         
         function SharedItemsPost() {
             $this->plugin_path_url();
             $this->install_plugin();
             $this->actions_filters();
-        }
-
-        function dump($msg, $object, $mode = "a+") {
-            $obj = print_r($object, true);
-            $f = fopen($this->log_file, $mode);
-            fwrite ($f, sprintf("[%s] : %s\r\n", current_time('mysql'), $msg));
-            fwrite ($f, "$obj");
-            fwrite ($f, "\r\n");
-            fclose($f);
         }
 
         function plugin_path_url() {
@@ -96,9 +109,6 @@ if (!class_exists('SharedItemsPost')) {
 		}
 
 		function get_feed_url($share_url) {
-// 			$file = $this->get_file_contents($share_url);
-// 			preg_match('/xml".href="(.+?)"/', $file, $matches);
-// 			return $matches[1];
 			$share_id = ( isset ( $this->o['share_id'] ) && !empty ( $this->o['share_id']{19} ) ) ? $this->o["share_id"] : $this->get_share_id ( $share_url );
 			return sprintf ( $this->google_feed_url, $share_id );
 		}
@@ -191,7 +201,7 @@ if (!class_exists('SharedItemsPost')) {
 		}
         
         function generate_post() {
-        	 	if ($this->o["feed_url"] == "") return;
+			if ($this->o["feed_url"] == "") return;
         	 
             $rss = new SimplePie();
             $rss->set_feed_url($this->o["feed_url"]);
@@ -213,7 +223,7 @@ if (!class_exists('SharedItemsPost')) {
                     $entry_time = strtotime($item->get_local_date());
                     $crawl_time = $item->data["attribs"]["http://www.google.com/schemas/reader/atom/"]["crawl-timestamp-msec"];
  							
- 										if ($newtime==0)
+					if ($newtime==0)
                 	  	$newtime=$crawl_time;
                 	  
                 	  	
@@ -222,27 +232,42 @@ if (!class_exists('SharedItemsPost')) {
                         $new_item["entry_time"] = $entry_time;
                         $new_item["title"] = $item->get_title();
                         $new_item["link"] = $item->get_link();
+						
+						if ( $source = $item->get_source ( ) )
+						{
+							$new_item['site_url'] = $source->get_link ( 0 );
+							$new_item['site_name'] = $source->get_title ( );
+						}
+						
                         $annotation = $item->get_item_tags("http://www.google.com/schemas/reader/atom/", "annotation");
                         if (isset($annotation)) {
                             $note = html_entity_decode($this->o["post_note_template"]);
-                            $note = str_replace('%CONTENT%', $annotation[0]["child"]["http://www.w3.org/2005/Atom"]["content"][0]["data"], $note);
-                            $note = str_replace('%AUTHOR%', $annotation[0]["child"]["http://www.w3.org/2005/Atom"]["author"][0]["child"]["http://www.w3.org/2005/Atom"]["name"][0]["data"], $note);
+                            $note = str_replace( array_keys ( $this->annotation_elements ), array ( 
+								$annotation[0]["child"]["http://www.w3.org/2005/Atom"]["content"][0]["data"],
+								$annotation[0]["child"]["http://www.w3.org/2005/Atom"]["author"][0]["child"]["http://www.w3.org/2005/Atom"]["name"][0]["data"]
+							), $note);
                         }
-                        else $note = "";
+                        else
+							$note = "";
+						
                         $new_item["note"] = $note;
-                        
                         $new_items[] = $new_item;
                     }
                 }
-                
+				
+				
                 if (count($new_items) > 0) {
                     foreach ($new_items as $item) {
                         $item_date = date(get_option("date_format"), $item["entry_time"]);
                         $import = html_entity_decode($this->o["post_item_template"]);
-                        $import = str_replace('%DATE%', $item_date, $import);
-                        $import = str_replace('%NOTE%', $item["note"], $import);
-                        $import = str_replace('%TITLE%', $item["title"], $import);
-                        $import = str_replace('%LINK%', $item["link"], $import);
+						$import = str_replace ( array_keys ( $this->item_elements ), array (
+							$item["title"],
+							$item["link"],
+							$item_date,
+							$item["note"],
+							$item["site_name"],
+							$item["site_url"]
+						), $import );
                         $post_content.= $import;
                     }
                 }
@@ -250,7 +275,7 @@ if (!class_exists('SharedItemsPost')) {
             
             if ($post_content != "") {
                 $post_title = html_entity_decode($this->o["post_title"]);
-                $post_title = str_replace('%DATE%', date(get_option("date_format")), $post_title);
+                $post_title = str_replace( array_keys ( $this->title_elements ), date(get_option("date_format")), $post_title);
                 $post_header = html_entity_decode($this->o["post_header_template"]);
                 $post_footer = html_entity_decode($this->o["post_footer_template"]);
                 
@@ -275,28 +300,34 @@ if (!class_exists('SharedItemsPost')) {
         }
         
         function check_refresh() {
-            if ($this->o["feed_url"] != "") {
-                if ($this->o["last_refresh"] == 0) return true;
-                $pdate = $this->o["last_refresh"];
-                $timeparts = $this->convert_time($this->o["refresh_time"]);
-                switch ($this->o["refresh_period"]) {
-                    case "monthly":
-                        $next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate) + 1, date("d", $pdate), date("Y", $pdate));
-                        break;
-                    case "weekly":
-                        $next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate), date("d", $pdate) + 7, date("Y", $pdate));
-                        break;
-                    case "daily":
-                        $next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate), date("d", $pdate) + 1, date("Y", $pdate));
-                        break;
-                }
-               
-                if (mktime() >= $next) return true;
-                else return false;
-            }
-            else return false;
+   
+            if ($this->o["feed_url"] == "")
+				return false;
+			
+			if ($this->o["last_refresh"] == 0)
+				return true;
+			
+			$pdate = $this->o["last_refresh"];
+			$timeparts = $this->convert_time($this->o["refresh_time"]);
+			
+			switch ($this->o["refresh_period"]) {
+				case "monthly":
+					$next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate) + 1, date("d", $pdate), date("Y", $pdate));
+					break;
+				case "weekly":
+					$next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate), date("d", $pdate) + 7, date("Y", $pdate));
+					break;
+				case "daily":
+					$next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate), date("d", $pdate) + 1, date("Y", $pdate));
+					break;
+			}
+		   
+			if (mktime() >= $next)
+				return true;
+			
+            return false;
         }
-        
+		
         function convert_time($timer) {
             $tp = split(" ", $timer);
             if (count($tp) == 2) {
@@ -307,7 +338,7 @@ if (!class_exists('SharedItemsPost')) {
                 }
                 return split(":", $tp[0]);
             }
-            else return split(":", $timer);
+            return split(":", $timer);
         }
 
         function admin_menu() {
@@ -320,11 +351,13 @@ if (!class_exists('SharedItemsPost')) {
         }
         
         function options_panel() {
-            $options = $this->o;
+            $options = $this->o + array (
+				'title_elements'		=>	$this->title_elements,
+				'item_elements'			=>	$this->item_elements,
+				'annotation_elements'	=>	$this->annotation_elements				
+			);
             $status = $this->status;
 			
-			 
-            
             include($this->plugin_path.'shared-items-panel.php');
         }
     }
