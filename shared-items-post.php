@@ -31,9 +31,6 @@ function gd_compare_items($a, $b) {
 if (!class_exists('SharedItemsPost')) {
     class SharedItemsPost
     {
-        // var $log_file = "c:/log.txt"; 
-        // a bit more logical to make it dynamic and place it in the plugin folder.
-        var $log_file = dirname(__FILE__).'/log.txt';
 		
 		var $options_key = 'shared-items-post-options';
 		var $google_feed_url = 'http://www.google.com/reader/public/atom/user/%s/state/com.google/broadcast';
@@ -64,8 +61,8 @@ if (!class_exists('SharedItemsPost')) {
             'post_comments' => 1,
             'last_crawl' => 0,
             'last_refresh' => 0,
-            'last_refresh_feed' => 0
-            'last_refresh_date' => 0; // FIX: check/set the current date in the prototype, then exit if already run
+            'last_refresh_feed' => 0,
+            'last_refresh_date' => 0 // FIX: check/set the current date in the prototype, then exit if already run
         );
 		
 		var $item_elements = array (
