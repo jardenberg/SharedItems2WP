@@ -39,7 +39,6 @@ if (!class_exists('SharedItemsPost')) {
         var $plugin_path;
         var $status = "";
         var $refresh_date; // for checking against duplicate run
-        var $can_generate; // is new post generation allowed at this time
 
         var $o;
 
@@ -86,24 +85,7 @@ if (!class_exists('SharedItemsPost')) {
         function SharedItemsPost() {
             $this->plugin_path_url();
             $this->install_plugin();
-            //$this->actions_filters();
-            /*
-            * Setting a check here against duplicate runs
-            * defining today, checkin against the relevant (new) option;
-            * if there's no match options are updated to reflect the run,
-            * a variable is set to allow generation or not.
-            */
-            $this->refresh_date = date('Ymd');
-            if($this->o['last_refresh_date'] != $this->refresh_date) {
-                $this->o['last_refresh_date'] = $this->refresh_date;
-                update_option("shared-items-post-options", $this->o);
-                $this->can_generate = true;
-                $this->actions_filters();
-            } else {
-                $this->can_generate = false;
-                $this->actions_filters();
-            }
-            // end new duplicate run check
+	    $this->actions_filters();
         }
 
         function plugin_path_url() {
@@ -172,11 +154,7 @@ if (!class_exists('SharedItemsPost')) {
 			if ($_POST['action'] == 'runow') {
 			
 				check_admin_referer('shared-2');
-				//$this->generate_post();
-                // no duplicate posting
-                if ($this->can_generate == true) {
-                    $this->generate_post();
-                }
+				$this->generate_post();
 				
 			}
 			else {
@@ -184,7 +162,7 @@ if (!class_exists('SharedItemsPost')) {
 						check_admin_referer('shared-3');
 						
 					$this->o = $this->default_options;
-					update_option("shared-items-post-options", $this->default_options);
+					update_option( $this->options_key, $this->default_options);
 				}
 				
 				if ($_POST['action'] == 'save') {
@@ -204,7 +182,7 @@ if (!class_exists('SharedItemsPost')) {
 					$this->o["refresh_time"] = $_POST['refresh_time'];
 
 					
-					update_option("shared-items-post-options", $this->o);
+					update_option($this->options_key, $this->o);
 
 					$share_url = str_replace("https://", "http://", $_POST['share_url']);
 					
@@ -222,19 +200,15 @@ if (!class_exists('SharedItemsPost')) {
 					}
 				}
 
-				// again, no duplicates
-                if ($this->check_refresh()) {
-                    if ($this->can_generate == true) {
-                        $this->generate_post();
-                    }
-                }
+				// no duplicates
+				if ($this->check_refresh()) {
+					$this->generate_post();
+				}
 			}
 		}
         
         function generate_post() {
 			if ($this->o["feed_url"] == "") return;
-            // yet again do not create duplicates
-            if ($this->can_generate == false) return;
         	 
             $rss = new SimplePie();
             $rss->set_feed_url($this->o["feed_url"]);
@@ -336,6 +310,9 @@ if (!class_exists('SharedItemsPost')) {
    
             if ($this->o["feed_url"] == "")
 				return false;
+	    
+	    if ( !$this->check_refresh_date () )
+		return false;
 			
 			if ($this->o["last_refresh"] == 0)
 				return true;
@@ -360,6 +337,29 @@ if (!class_exists('SharedItemsPost')) {
 			
             return false;
         }
+	
+	/**
+	* Setting a check here against duplicate runs
+	* defining today, checkin against the relevant (new) option;
+	* if there's no match options are updated to reflect the run,
+	* a variable is set to allow generation or not.
+	* @return boolean
+	*/
+	
+	function check_refresh_date ( )
+	{
+		
+		$this->refresh_date = date('Ymd');
+		if($this->o['last_refresh_date'] != $this->refresh_date) {
+			$this->o['last_refresh_date'] = $this->refresh_date;
+			update_option($this->options_key, $this->o);
+			return true;
+		}
+		
+		return false;
+	
+	}
+	
 		
         function convert_time($timer) {
             $tp = split(" ", $timer);
