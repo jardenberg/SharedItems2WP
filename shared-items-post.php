@@ -39,6 +39,7 @@ if (!class_exists('SharedItemsPost')) {
         var $plugin_path;
         var $status = "";
         var $refresh_date; // for checking against duplicate run
+	var $max_origin_url_iteration = 4;
 
         var $o;
 
@@ -52,7 +53,7 @@ if (!class_exists('SharedItemsPost')) {
             'post_title' => 'Shared Items - %DATE%',
             'post_header_template' => '&lt;ul&gt;',
             'post_footer_template' => '&lt;/ul&gt;',
-            'post_item_template' => '&lt;li&gt;&lt;a href=&quot;%ORIGINURL%&quot; title=&quot;%ORIGIN%&quot;&gt;%ORIGIN%&lt;/a&gt; - &lt;a href=&quot;%LINK%&quot; title=&quot;%TITLE%&quot;&gt;%TITLE%&lt;/a&gt;&lt;br&gt;%DATE% %NOTE%&lt;/li&gt;',
+            'post_item_template' => '&lt;li&gt;&lt;a href=&quot;%BASEURL%&quot; title=&quot;%BASETITLE%&quot;&gt;%BASETITLE%&lt;/a&gt; - &lt;a href=&quot;%LINK%&quot; title=&quot;%TITLE%&quot;&gt;%TITLE%&lt;/a&gt;&lt;br&gt;%DATE% %NOTE%&lt;/li&gt;',
             'post_note_template' => '- %CONTENT%',
             'post_category' => 1,
             'post_tags' => '',
@@ -69,8 +70,8 @@ if (!class_exists('SharedItemsPost')) {
 			'%LINK%'		=>	'link for the feed item',
 			'%DATE%'		=>	'item publish date',
 			'%NOTE%'		=>	'feed note',
-			'%ORIGIN%'		=>	'origin title',
-			'%ORIGINURL%'	=>	'origin URL'
+			'%BASETITLE%'		=>	'site title',
+			'%BASEURL%'		=>	'site base URL'
 		);
 		
 		var $annotation_elements = array (
@@ -133,6 +134,61 @@ if (!class_exists('SharedItemsPost')) {
 			$file = $client->results;
 			return $file;
 		}
+		
+		/**
+		* function to get the origin url if a HTTP redirect occured, recursively!
+		* @param string $url
+		* @return string origin url
+		*/
+		
+		function get_origin_url ( $start_url, $iteration = 0 )
+		{
+
+			if ( $iteration < $this->max_origin_url_iteration ) // prevent infinite loops
+			{
+			
+				$iteration++;
+				$url = parse_url( $start_url );
+
+				$host = $url['host'];
+				$port = $url['port'];
+				$path = $url['path'];
+				if(!$port)
+					$port = 80;
+
+				$request = "HEAD $path HTTP/1.1\r\n"
+				."Host: $host\r\n"
+				."Connection: close\r\n"
+				."\r\n";
+
+				$address = gethostbyname($host);
+				$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+				socket_connect($socket, $address, $port);
+
+				socket_write($socket, $request, strlen($request));
+
+				$response = split("\n", socket_read($socket, 1024));
+				socket_close($socket);
+
+				if ( ( strpos ( $response[0], 'HTTP/1.1 30' ) === 0 || strpos ( $response[0], 'HTTP/1.0 30' ) === 0 ) )
+				{
+				
+					foreach ( $response as $http_line )
+					{
+					
+						if ( strpos ( $http_line, 'Location:' ) === 0 )
+							return $this->get_origin_url ( trim ( str_replace ( 'Location: ', '', $http_line ) ), $iteration );
+					
+					}
+				
+				}
+				
+			}
+
+			return $start_url;
+
+		}
+
 		
 		/**
 		* function to return share_id from share_url (instead of parsing it from the page itself...)
@@ -238,7 +294,7 @@ if (!class_exists('SharedItemsPost')) {
                         $new_item["crawl_time"] = $crawl_time;
                         $new_item["entry_time"] = $entry_time;
                         $new_item["title"] = $item->get_title();
-                        $new_item["link"] = $item->get_link();
+                        $new_item["link"] = $this->get_origin_url ( $item->get_link() );
 						
 						if ( $source = $item->get_source ( ) )
 						{
