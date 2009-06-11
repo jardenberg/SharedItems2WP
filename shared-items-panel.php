@@ -1,6 +1,6 @@
 <?php if ($_POST['action'] == 'save') { ?><div id="message" class="updated fade" style="background-color: rgb(255, 251, 204);"><p><strong>Settings saved.</strong></p></div><?php } ?>
 
-<div class="wrap"><h2>Shared Items Post</h2>
+<div class="wrap"><h2>SharedItems2WP</h2>
 
 <div class="gdsr">
 <form method="post">
