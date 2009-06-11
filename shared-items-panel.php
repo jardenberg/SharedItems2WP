@@ -19,9 +19,9 @@
                     <td width="150" height="25"><label for="refresh_period">Period:</label></td>
                     <td align="left">
                     <select style="width: 180px;" name="refresh_period" id="refresh_period">
-                        <option value="monthly"<?php echo $options["refresh_period"] == 'monthly' ? ' selected="selected"' : ''; ?>>Monthly</option>
-                        <option value="weekly"<?php echo $options["refresh_period"] == 'weekly' ? ' selected="selected"' : ''; ?>>Weekly</option>
-                        <option value="daily"<?php echo $options["refresh_period"] == 'daily' ? ' selected="selected"' : ''; ?>>Daily</option>
+                        <?php foreach ( $options['refresh_periods'] as $key => $value ): ?>
+                            <option value="<?=$key?>"<?php echo $options["refresh_period"] == $key ? ' selected="selected"' : ''; ?>><?=ucfirst($key)?></option>
+                        <?php endforeach; ?>
                     </select>
                     </td>
                 </tr>

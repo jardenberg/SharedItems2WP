@@ -1,7 +1,7 @@
 <?php
 
 /*
-Plugin Name: Shared Items Post
+Plugin Name: SharedItems2WP
 Plugin URI: http://www.googletutor.com/shared-items-post/
 Description: Scheduled automatic posting of Google Reader Shared Items.
 Version: 1.3.0
@@ -21,15 +21,9 @@ if(!class_exists('SimplePie')) {
     }
 }
 
-function gd_compare_items($a, $b) {
-    if ($a["entry_time"] == $b["entry_time"]) {
-        return 0;
-    }
-    return ($a["entry_time"] < $b["entry_time"]) ? -1 : 1;
-}
 
-if (!class_exists('SharedItemsPost')) {
-    class SharedItemsPost
+if (!class_exists('SharedItems2WP')) {
+    class SharedItems2WP
     {
 		
 		var $options_key = 'shared-items-post-options';
@@ -38,7 +32,6 @@ if (!class_exists('SharedItemsPost')) {
         var $plugin_url;
         var $plugin_path;
         var $status = "";
-        var $refresh_date; // for checking against duplicate run
 	var $max_origin_url_iteration = 4;
 
         var $o;
@@ -61,8 +54,10 @@ if (!class_exists('SharedItemsPost')) {
             'post_comments' => 1,
             'last_crawl' => 0,
             'last_refresh' => 0,
+	    'next_refresh' => 0,
             'last_refresh_feed' => 0,
-            'last_refresh_date' => 0 // FIX: check/set the current date in the prototype, then exit if already run
+            'last_refresh_date' => 0, // FIX: check/set the current date in the prototype, then exit if already run
+	    'currently_running' => 0
         );
 		
 		var $item_elements = array (
@@ -82,8 +77,14 @@ if (!class_exists('SharedItemsPost')) {
 		var $title_elements = array (
 			'%DATE%'		=>	'post publish date'
 		);
+		
+		var $refresh_periods = array (
+			'daily'		=>	'day',
+			'weekly'	=>	'week',
+			'monthly'	=>	'month'
+		);
         
-        function SharedItemsPost() {
+        function SharedItems2WP() {
             $this->plugin_path_url();
             $this->install_plugin();
 	    $this->actions_filters();
@@ -155,6 +156,8 @@ if (!class_exists('SharedItemsPost')) {
 				$path = $url['path'];
 				if(!$port)
 					$port = 80;
+				if ( !empty ( $url['query'] ) )
+					$path .= '?' . $url['query'];
 
 				$request = "HEAD $path HTTP/1.1\r\n"
 				."Host: $host\r\n"
@@ -162,25 +165,29 @@ if (!class_exists('SharedItemsPost')) {
 				."\r\n";
 
 				$address = gethostbyname($host);
-				$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
-				socket_connect($socket, $address, $port);
+				$socket = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+				$connected = @socket_connect($socket, $address, $port);
+				socket_set_option( $socket, SOL_SOCKET, SO_RCVTIMEO, array("sec"=>1, "usec"=>500) );
 
-				socket_write($socket, $request, strlen($request));
-
-				$response = split("\n", socket_read($socket, 1024));
-				socket_close($socket);
-
-				if ( ( strpos ( $response[0], 'HTTP/1.1 30' ) === 0 || strpos ( $response[0], 'HTTP/1.0 30' ) === 0 ) )
+				if ( $connected !== false && $socket !== false )
 				{
-				
-					foreach ( $response as $http_line )
+					socket_write($socket, $request, strlen($request));
+
+					$response = split("\n", socket_read($socket, 1024));
+					socket_close($socket);
+
+					if ( ( strpos ( $response[0], 'HTTP/1.1 30' ) === 0 || strpos ( $response[0], 'HTTP/1.0 30' ) === 0 ) )
 					{
 					
-						if ( strpos ( $http_line, 'Location:' ) === 0 )
-							return $this->get_origin_url ( trim ( str_replace ( 'Location: ', '', $http_line ) ), $iteration );
+						foreach ( $response as $http_line )
+						{
+						
+							if ( strpos ( $http_line, 'Location:' ) === 0 )
+								return $this->get_origin_url ( trim ( str_replace ( 'Location: ', '', $http_line ) ), $iteration );
+						
+						}
 					
 					}
-				
 				}
 				
 			}
@@ -235,6 +242,10 @@ if (!class_exists('SharedItemsPost')) {
 					$this->o["post_category"] = $_POST['post_category'];
 					$this->o["post_comments"] = isset($_POST['post_comments']) ? 1 : 0;
 					$this->o["refresh_period"] = $_POST['refresh_period'];
+					
+					if ( $_POST['refresh_time'] != $this->o['refresh_time'] )
+						$this->set_next_refresh ( $_POST['refresh_time'] );
+					
 					$this->o["refresh_time"] = $_POST['refresh_time'];
 
 					
@@ -258,7 +269,9 @@ if (!class_exists('SharedItemsPost')) {
 
 				// no duplicates
 				if ($this->check_refresh()) {
+					$this->set_currently_running ( true );
 					$this->generate_post();
+					$this->set_currently_running ( false );
 				}
 			}
 		}
@@ -363,52 +376,47 @@ if (!class_exists('SharedItemsPost')) {
         }
         
         function check_refresh() {
-   
-            if ($this->o["feed_url"] == "")
-				return false;
+
+		if ($this->o["feed_url"] == "")
+			return false;
 	    
-	    if ( !$this->check_refresh_date () )
+		if ($this->o["last_refresh"] == 0)
+		{
+			$this->set_currently_running ( false );
+			return true;
+		}
+		
+		if ( $this->currently_running ( ) )
+			return false;
+		
+		$next = $this->check_next_refresh ( );
+		if ( $next )
+			return true;
+			
 		return false;
-			
-			if ($this->o["last_refresh"] == 0)
-				return true;
-			
-			$pdate = $this->o["last_refresh"];
-			$timeparts = $this->convert_time($this->o["refresh_time"]);
-			
-			switch ($this->o["refresh_period"]) {
-				case "monthly":
-					$next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate) + 1, date("d", $pdate), date("Y", $pdate));
-					break;
-				case "weekly":
-					$next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate), date("d", $pdate) + 7, date("Y", $pdate));
-					break;
-				case "daily":
-					$next = mktime(0 + $timeparts[0], 0 + $timeparts[1], 0, date("m", $pdate), date("d", $pdate) + 1, date("Y", $pdate));
-					break;
-			}
-		   
-			if (mktime() >= $next)
-				return true;
-			
-            return false;
         }
 	
-	/**
-	* Setting a check here against duplicate runs
-	* defining today, checkin against the relevant (new) option;
-	* if there's no match options are updated to reflect the run,
-	* a variable is set to allow generation or not.
-	* @return boolean
-	*/
-	
-	function check_refresh_date ( )
+	function currently_running ( )
 	{
-		
-		$this->refresh_date = date('Ymd');
-		if($this->o['last_refresh_date'] != $this->refresh_date) {
-			$this->o['last_refresh_date'] = $this->refresh_date;
-			update_option($this->options_key, $this->o);
+	
+		return $this->o['currently_running'];
+	
+	}
+	
+	function set_currently_running ( $state )
+	{
+	
+		$this->o['currently_running'] = $state;
+		update_option ( $this->options_key, $this->o );
+	
+	}
+	
+	function check_next_refresh ( )
+	{
+	
+		if ( time ( ) >= $this->o['next_refresh'] )
+		{
+			$this->set_next_refresh ( $this->o['refresh_time'], true );
 			return true;
 		}
 		
@@ -416,22 +424,20 @@ if (!class_exists('SharedItemsPost')) {
 	
 	}
 	
+	function set_next_refresh ( $refresh_time, $skip = false )
+	{
+	
+		$next = strtotime ( $refresh_time );
+		if ( time ( ) >  $next || $skip )
+			$next = strtotime ( $this->o['refresh_time'] . ' +1 ' . $this->refresh_periods[strtolower($this->o['refresh_period'])] );
 		
-        function convert_time($timer) {
-            $tp = split(" ", $timer);
-            if (count($tp) == 2) {
-                if ($tp[1] == "PM") {
-                    $tt = split(":", $tp[0]);
-                    $tt[0] = $tt[0] + 12;
-                    return $tt;
-                }
-                return split(":", $tp[0]);
-            }
-            return split(":", $timer);
-        }
+		$this->o['next_refresh'] = $next;
+		update_option ( $this->options_key, $this->o );
+	
+	}
 
         function admin_menu() {
-            add_submenu_page('options-general.php','Shared Items Post', 'Shared Items Post', 9, __FILE__, array($this, 'options_panel'));
+            add_submenu_page('options-general.php','SharedItems2WP', 'SharedItems2WP', 9, __FILE__, array($this, 'options_panel'));
         }
 
         function admin_head() {
@@ -443,7 +449,8 @@ if (!class_exists('SharedItemsPost')) {
             $options = $this->o + array (
 				'title_elements'		=>	$this->title_elements,
 				'item_elements'			=>	$this->item_elements,
-				'annotation_elements'	=>	$this->annotation_elements				
+				'annotation_elements'	=>	$this->annotation_elements,
+				'refresh_periods'	=>	$this->refresh_periods
 			);
             $status = $this->status;
 			
@@ -451,7 +458,7 @@ if (!class_exists('SharedItemsPost')) {
         }
     }
     
-    $rssShare = new SharedItemsPost();
+    $rssShare = new SharedItems2WP();
 }
 
 ?>
