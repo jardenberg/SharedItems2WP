@@ -1,3 +1,17 @@
+2009-06-12
+
+We have whats seems to be functional rewrite. YAY!
+Besides better handling of the timer, duplicate control and code cleanup there is now a url lookup if %LINK% would point to a feedburner redirect. The point is to give the user a better experience and the author a proper trackback.
+
+
+Still to do, before first offical beta:
+- final cleanup (@world_eggplant @scatcat)
+- file renaming (@jocke) (and repo cleanup)
+- rewrite documentation (@jocke) - with credit to the original author as well
+- release the plugin to codex (@jocke)
+
+What did i forget?
+
 2009-05-02
 
 This repo is supposed to hold a fork (sort of) to the Wordpress Plugin Shared Items Post [http://www.googletutor.com/shared-items-post/]
