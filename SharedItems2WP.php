@@ -26,6 +26,7 @@ if (!class_exists('SharedItems2WP')) {
     {
 		
 		var $options_key = 'SharedItems2WP';
+		var $old_options_key = 'shared-items-post-options';
 		var $google_feed_url = 'http://www.google.com/reader/public/atom/user/%s/state/com.google/broadcast';
 		var $cron_event = 'si2wp_post';
 		
@@ -96,7 +97,7 @@ if (!class_exists('SharedItems2WP')) {
         }
 
 		function install_plugin() {
-			$this->o = get_option($this->options_key);
+			$this->o = ( $opt = get_option($this->options_key) ) ? $opt : get_option($this->old_options_key);
 						
 			if (!is_array($this->o) || empty($this->o) ) {
 				update_option($this->options_key, $this->default_options);
@@ -112,7 +113,6 @@ if (!class_exists('SharedItems2WP')) {
 		function actions_filters() {
 			
 			add_action('admin_menu', array(&$this, 'admin_menu'));
-			add_action('admin_head', array(&$this, 'admin_head'));
 			add_action($this->cron_event, array(&$this, 'run_cron'));
 			add_filter('cron_schedules', array ( &$this, 'register_schedules' ) );
 			register_activation_hook(__FILE__, array ( &$this, 'register_cron' ) );
@@ -445,7 +445,8 @@ if (!class_exists('SharedItems2WP')) {
         
 
         function admin_menu() {
-            add_submenu_page('options-general.php','SharedItems2WP', 'SharedItems2WP', 9, __FILE__, array($this, 'options_panel'));
+            $page = add_submenu_page('options-general.php','SharedItems2WP', 'SharedItems2WP', 9, __FILE__, array($this, 'options_panel'));
+	    add_action('admin_head-' . $page, array(&$this, 'admin_head'));
         }
 
         function admin_head() {
