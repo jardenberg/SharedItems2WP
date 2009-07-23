@@ -1,7 +1,7 @@
 <?php
 
 /*
-Plugin Name: SharedItems2WPCake
+Plugin Name: SharedItems2WP
 Plugin URI: http://jardenberg.se/shareditems2wp-google-reader-notes-wordpress/
 Description: Scheduled automatic posting of Google Reader Shared Items.
 Version: 2.0.0
@@ -25,7 +25,7 @@ if (!class_exists('SharedItems2WP')) {
     class SharedItems2WP
     {
 		
-		var $options_key = 'shared-items-post-options';
+		var $options_key = 'SharedItems2WP';
 		var $google_feed_url = 'http://www.google.com/reader/public/atom/user/%s/state/com.google/broadcast';
 		var $cron_event = 'si2wp_post';
 		
@@ -110,12 +110,15 @@ if (!class_exists('SharedItems2WP')) {
 		}
 
 		function actions_filters() {
-			add_action('init', array(&$this, 'init'));
+			
 			add_action('admin_menu', array(&$this, 'admin_menu'));
 			add_action('admin_head', array(&$this, 'admin_head'));
-			add_action($this->cron_event, array(&$this, 'generate_post'));
+			add_action($this->cron_event, array(&$this, 'run_cron'));
 			add_filter('cron_schedules', array ( &$this, 'register_schedules' ) );
+			register_activation_hook(__FILE__, array ( &$this, 'register_cron' ) );
 			register_deactivation_hook(__FILE__, array ( &$this, 'unregister_cron' ) );
+			
+			add_action('init', array(&$this, 'init'));
 		}
 		
 		function register_schedules ( )
@@ -134,13 +137,24 @@ if (!class_exists('SharedItems2WP')) {
 			
 		}
 		
-		function register_cron ( $occurence, $offset )
+		
+		function run_cron ( )
+		{
+		
+			$this->generate_post ( );
+		
+		}
+		
+		function register_cron ( $run_immediately = false )
 		{
 		
 			if ( $this->check_cron_registered ( ) )
 				$this->unregister_cron ( );
 			
-			wp_schedule_event ( $offset, $occurence, $this->cron_event );
+			wp_schedule_event ( $this->o['cron_time'], $this->o['refresh_period'], $this->cron_event );
+			
+			if ( $run_immediately )
+				spawn_cron ( );
 		
 		}
 		
@@ -157,9 +171,16 @@ if (!class_exists('SharedItems2WP')) {
 			return wp_next_scheduled ( $this->cron_event );
 		
 		}
+		
+		function cron_timestamp ( $refresh_time, $refresh_period )
+		{
+		
+			return strtotime ($refresh_time . ' +1 ' . $this->refresh_periods[strtolower($refresh_period)] );
+		
+		}
 
 		function get_feed_url($share_url) {
-			$share_id = ( isset ( $this->o['share_id'] ) && !empty ( $this->o['share_id']{19} ) ) ? $this->o["share_id"] : $this->get_share_id ( $share_url );
+			$share_id = ( isset ( $this->o['share_id'] ) && strlen ( $this->o['share_id'] == 20 ) ) ? $this->o["share_id"] : $this->get_share_id ( $share_url );
 			return sprintf ( $this->google_feed_url, $share_id );
 		}
 
@@ -259,13 +280,14 @@ if (!class_exists('SharedItems2WP')) {
 		function init() {
 			if ($_POST['action'] == 'runow') {
 			
-				check_admin_referer('shared-2');
+				check_admin_referer('shared-2', '_wpnonce2');
+				
 				$this->generate_post();
 				
 			}
 			else {
 				if ($_POST['action'] == 'reset') {
-						check_admin_referer('shared-3');
+						check_admin_referer('shared-3', '_wpnonce3');
 						
 					$this->o = $this->default_options;
 					update_option( $this->options_key, $this->default_options);
@@ -292,13 +314,14 @@ if (!class_exists('SharedItems2WP')) {
 		$this->o["post_author"] = $_POST['post_author'];
 		$this->o["post_category"] = $_POST['post_category'];
 		$this->o["post_comments"] = isset($_POST['post_comments']) ? 1 : 0;
+		$old_refresh_period = $this->o["refresh_period"];
+		$old_refresh_time = $this->o["refresh_time"];
 		$this->o["refresh_period"] = $_POST['refresh_period'];
 		$this->o["refresh_time"] = $_POST['refresh_time'];
+		$run_immediately = isset($_POST['run_immediately']) ? true : false;
+		$this->o['cron_time'] = $run_immediately ? time ( ) - 50: $this->cron_timestamp ( $_POST['refresh_time'], $_POST['refresh_period'] );
 		
-		$time_offset = isset ( $_POST['run_immediately'] ) ? time ( ) : strtotime ( $_POST['refresh_time'] . ' +1 ' . $this->refresh_periods[strtolower($_POST['refresh_period'])] );
 		
-		if ( $_POST['refresh_time'] != $this->o['refresh_time'] || !$this->check_cron_registered ( ) )
-			$this->register_cron ( $this->o['refresh_time'], $time_offset );
 		
 		update_option($this->options_key, $this->o);
 
@@ -316,6 +339,9 @@ if (!class_exists('SharedItems2WP')) {
 			else
 				$this->status = "Feed URL not found.";
 		}
+		
+		if ( $_POST['refresh_time'] != $old_refresh_time || $_POST['refresh_period'] != $old_refresh_period || !$this->check_cron_registered ( ) || $run_immediately )
+			$this->register_cron ( $run_immediately );
 	
 	}
 	
@@ -334,7 +360,6 @@ if (!class_exists('SharedItems2WP')) {
             $new_items = array();
             $post_content = "";
             $newtime=0;
-            
             if ($this->o["last_refresh_feed"] < $last_update) {
                 foreach ($rss->get_items() as $item) {
                 	                	                 
@@ -428,6 +453,7 @@ if (!class_exists('SharedItems2WP')) {
 	    ?>
 <script type="text/javascript">
 //<![CDATA[
+
 function check_url ( that, $ )
 {
 	var math_share_id = /(http|https):\/\/(www.)?google.com\/reader\/shared\/([0-9]+)\/?/i;
@@ -447,10 +473,10 @@ function check_url ( that, $ )
 }
 jQuery(document).ready ( function ( $ )
 {
-	
-	$("#adv_paypal_url")
+	/* a bit dirty, maybe... */
+	check_url ( $("#adv_paypal_url")
 		.change ( function ( ) { check_url ( this, $ ); } )
-		.keyup ( function ( ) { check_url ( this, $ ); } )
+		.keyup ( function ( ) { check_url ( this, $ ); } ), $ )
 	;
 });
 //]]>
@@ -462,7 +488,6 @@ jQuery(document).ready ( function ( $ )
 	border: 0px;
 }
 .gdsr-table-split {
-	border-top: 2px solid lightBlue; 
 	width: 100%; 
 	margin-top: 10px; 
 	padding-top: 10px;
@@ -488,18 +513,24 @@ jQuery(document).ready ( function ( $ )
 			
             ?>
 	    
-<?php if ($_POST['action'] == 'save') { ?><div id="message" class="updated fade" style="background-color: rgb(255, 251, 204);"><p><strong>Settings saved.</strong></p></div><?php } ?>
+<?php if ($_POST['action'] == 'save') { ?>
+<div id="message" class="updated fade" style="background-color: rgb(255, 251, 204);"><p><strong>Settings saved.</strong></p></div>
+<?php } else if ( $_POST['action'] == 'runow' ) { ?>
+<div id="message" class="updated fade" style="background-color: rgb(255, 251, 204);"><p><strong>Running!</strong></p></div>
+<?php } else if ( $_POST['action'] == 'reset' ) { ?>
+<div id="message" class="updated fade" style="background-color: rgb(255, 251, 204);"><p><strong>Settings reset.</strong></p></div>
+<?php } ?>
 
 <div class="wrap"><h2>SharedItems2WP</h2>
 
 <div class="gdsr">
-<form method="post" action="<?php echo $_SERVER['PHP_SELF']?>">
+<form method="post" action="">
 	<?php wp_nonce_field('shared-1' ); ?>
 <input type="hidden" name="action" value="save" />
 <table class="form-table"><tbody>
     <tr><th scope="row"><label for="adv_paypal_url">Shared items url:</label></th>
         <td>
-            <input type="text" name="share_url" id="adv_paypal_url" value="<?php echo $options["share_url"]; ?>" style="width: 720px" /><input type="hidden" name="share_id" id="adv_share_id" value="<?php echo $options["share_id"]; ?>" /> ID: <span id="filled_share_id"><?php if ( !empty ( $options["share_id"] ) ): echo $options["share_id"]; else: echo 'Please insert shared items URL'; endif; ?></span>
+            <input type="text" name="share_url" id="adv_paypal_url" value="<?php echo $options["share_url"]; ?>" style="width: 720px" /><input type="hidden" name="share_id" id="adv_share_id" value="<?php echo $options["share_id"]; ?>" /><br />ID: <span id="filled_share_id"><?php if ( !empty ( $options["share_id"] ) ): echo $options["share_id"]; else: echo 'Please insert shared items URL'; endif; ?></span>
         </td>
     </tr>
     <tr><th scope="row"><label for="refresh_period">Refresh:</label></th>
@@ -552,7 +583,8 @@ jQuery(document).ready ( function ( $ )
             <table cellpadding="0" cellspacing="0" class="previewtable">
                 <tr>
                     <td width="150" height="25"><label for="post_item_template">Item:</label></td>
-                    <td><input type="text" name="post_item_template" id="post_item_template" value="<?php echo wp_specialchars($options["post_item_template"]); ?>" style="width: 570px" /><br />
+                    <td><textarea name="post_item_template" id="post_item_template" style="width: 570px;" rows="3"><?php echo wp_specialchars($options["post_item_template"]); ?></textarea>
+		    <br />
                     List of available template elements:</td>
                 </tr>
             </table>
@@ -627,13 +659,13 @@ jQuery(document).ready ( function ( $ )
 
 	<h2>Misc. operations</h2>
 	
-		<form method="post" class="friendlyform" action="<?php echo $_SERVER['PHP_SELF'] ?>">
+		<form method="post" class="friendlyform" action="">
 			<?php wp_nonce_field('shared-2', '_wpnonce2' ); ?>
 			<input type="hidden" name="action" value="runow" />
 			<input type="submit" value="Run Now" name="saving" />
 		</form>
 		
-		<form method="post" action="<?php echo $_SERVER['PHP_SELF'] ?>">
+		<form method="post" action="">
 			<?php wp_nonce_field('shared-3', '_wpnonce3' ); ?>
 			<input type="hidden" name="action" value="reset" />
 			<input type="submit" value="Reset" name="saving" />
